@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventario-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventario-app
+  template:
+    metadata:
+      labels:
+        app: inventario-app
+    spec:
+      containers:
+        - name: inventario-app
+          image: inventario-app-compose:1.0.0
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://mysql:3306/inventario_db
+            - name: SPRING_DATASOURCE_USERNAME
+              value: root
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: secret

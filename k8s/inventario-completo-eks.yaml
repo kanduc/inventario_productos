@@ -1,0 +1,180 @@
+# ======================
+# Namespace: inventario
+# ======================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inventario
+
+---
+# ======================
+# ConfigMap: Configuración de MySQL
+# ======================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: inventario
+data:
+  MYSQL_DATABASE: inventario_db
+  MYSQL_HOST: mysql-inventario-service
+  MYSQL_PORT: "3306"
+  MYSQL_USER: root
+
+---
+# ======================
+# Secret: Contraseña de MySQL
+# ======================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: inventario
+type: Opaque
+data:
+  MYSQL_ROOT_PASSWORD: c2VjcmV0  # "secret" en base64
+
+---
+# ======================
+# PersistentVolumeClaim para MySQL (dinámico con EBS)
+# ======================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-inventario-pvc
+  namespace: inventario
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: gp2
+
+---
+# ======================
+# Deployment de MySQL
+# ======================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-inventario-deployment
+  namespace: inventario
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-inventario
+  template:
+    metadata:
+      labels:
+        app: mysql-inventario
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: MYSQL_DATABASE
+          volumeMounts:
+            - name: mysql-storage
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-inventario-pvc
+
+---
+# ======================
+# Service de MySQL (interno)
+# ======================
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-inventario-service
+  namespace: inventario
+spec:
+  selector:
+    app: mysql-inventario
+  ports:
+    - port: 3306
+      targetPort: 3306
+
+---
+# ======================
+# Deployment de la Aplicación
+# ======================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventario-app-deployment
+  namespace: inventario
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventario-app
+  template:
+    metadata:
+      labels:
+        app: inventario-app
+    spec:
+      containers:
+        - name: inventario-app
+          image: katluv/inventario-demo:1.0.1
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: MYSQL_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: MYSQL_PORT
+            - name: DB_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: MYSQL_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: DB_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: mysql-config
+                  key: MYSQL_DATABASE
+
+---
+# ======================
+# Service tipo LoadBalancer para exponer app en EKS
+# ======================
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventario-app-service
+  namespace: inventario
+spec:
+  selector:
+    app: inventario-app
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
